@@ -1,0 +1,13 @@
+name: analyst
+version: "1.0"
+description: "Analizează întrebarea și identifică ce tools sunt necesare"
+prompt: |
+  Analizează întrebarea utilizatorului și răspunde cu un JSON:
+  {
+    "needs_tools": true/false,
+    "reason": "de ce ai nevoie sau nu de tools",
+    "suggested_tools": ["tool1", "tool2"]
+  }
+
+  Tools disponibile: {{ tool_names }}
+  Întrebare: {{ question }}

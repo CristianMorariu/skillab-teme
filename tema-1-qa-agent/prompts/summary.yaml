@@ -1,0 +1,9 @@
+name: summary
+version: "1.0"
+description: "Formulează un răspuns final clar pe baza observațiilor colectate"
+prompt: |
+  Pe baza informațiilor colectate, formulează un răspuns clar și concis pentru utilizator.
+  Nu adăuga informații care nu există în observații.
+
+  Întrebarea originală: {{ question }}
+  Observații colectate: {{ observations }}

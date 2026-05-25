@@ -1,0 +1,6 @@
+google-genai
+python-dotenv
+pydantic
+pyyaml
+jinja2
+gradio

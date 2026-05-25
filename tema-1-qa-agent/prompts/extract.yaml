@@ -1,0 +1,9 @@
+name: extract
+version: "1.0"
+description: "Extrage JSON-ul de tool call din răspunsul LLM când formatul e incorect"
+prompt: |
+  Din textul de mai jos, extrage DOAR obiectul JSON care conține "tool" și "args" SAU "final_answer".
+  Răspunde EXCLUSIV cu JSON valid, fără explicații sau text în afara lui.
+
+  Text:
+  {{ raw_text }}
