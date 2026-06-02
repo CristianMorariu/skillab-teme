@@ -4,8 +4,6 @@ Agent conversațional care rezolvă task-uri pas cu pas folosind tools și patte
 
 ## Instalare
 
-> **Important:** Deschide VS Code direct în folderul `tema-1-qa-agent/` (nu în folderul părinte), altfel VS Code nu va detecta automat interpretorul din venv.
-
 ```bash
 python -m venv venv
 venv\Scripts\activate
@@ -52,7 +50,7 @@ python agent.py
 ## Structura proiectului
 
 ```
-tema-1-qa-agent/
+.
 ├── agent.py              # Clasa QAAgent — factory, chat, stream, ReAct loop
 ├── tools/
 │   ├── basic_tools.py    # Implementarea tool-urilor (@register_tool + Pydantic)
@@ -62,8 +60,7 @@ tema-1-qa-agent/
 │   └── __init__.py
 ├── prompts/
 │   ├── registry.py       # PromptRegistry — încarcă și randează YAML cu Jinja2
-│   ├── planner.yaml      # System prompt pentru agentul ReAct
-│   └── ...
+│   └── planner.yaml      # System prompt pentru agentul ReAct
 ├── .env.example          # Template pentru .env
-└── provider-switching.md # Documentație arhitectură
+└── requirements.txt      # Dependențe Python
 ```
