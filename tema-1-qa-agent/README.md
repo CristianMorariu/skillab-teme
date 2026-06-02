@@ -1,6 +1,6 @@
 # QA Agent cu ReAct Pattern
 
-Agent conversațional care rezolvă task-uri pas cu pas folosind tools și pattern-ul ReAct (Think → Act → Observe).
+Agent conversațional care rezolvă task-uri pas cu pas folosind tools și pattern-ul ReAct (Think → Act → Observe). Suportă mai mulți provideri LLM schimbabili dintr-o singură variabilă în `.env`.
 
 ## Instalare
 
@@ -12,10 +12,25 @@ venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-Creează un fișier `.env` în folderul principal:
+Copiază `.env.example` în `.env` și completează cheile necesare:
+
+```bash
+copy .env.example .env
+```
+
+## Provideri suportați
+
+| Provider      | Variabilă `.env`           | Model implicit              |
+| ------------- | -------------------------- | --------------------------- |
+| `ollama`      | `OLLAMA_MODEL`             | `llama3.2:3b` (local)       |
+| `gemini`      | `GEMINI_API_KEY`           | `gemini-2.5-flash`          |
+| `openrouter`  | `OPENROUTER_API_KEY`       | `openai/gpt-oss-120b:free`  |
+| `anthropic`   | `ANTHROPIC_API_KEY`        | `claude-sonnet-4-5`         |
+
+Schimbă providerul activ în `.env`:
 
 ```
-GEMINI_API_KEY=cheia_ta_aici
+LLM_PROVIDER=openrouter
 ```
 
 ## Rulare
@@ -37,18 +52,18 @@ python agent.py
 ## Structura proiectului
 
 ```
-qa-agent/
-├── agent.py              # Agentul principal cu bucla ReAct
+tema-1-qa-agent/
+├── agent.py              # Clasa QAAgent — factory, chat, stream, ReAct loop
 ├── tools/
-│   ├── basic_tools.py    # Implementarea tool-urilor
-│   ├── params_models.py  # Modele Pydantic pentru validare
-│   ├── registry.py       # Decorator @register_tool + ToolWrapper
+│   ├── basic_tools.py    # Implementarea tool-urilor (@register_tool + Pydantic)
+│   ├── params_models.py  # Modele Pydantic pentru validare parametri
+│   ├── registry.py       # Decorator @register_tool + TOOL_REGISTRY
+│   ├── tool_wrapper.py   # ToolWrapper: catalog() și catalog_langchain()
 │   └── __init__.py
 ├── prompts/
-│   ├── registry.py       # PromptTemplate + PromptRegistry
-│   ├── planner.yaml      # Prompt principal pentru agentul ReAct
-│   ├── analyst.yaml      # Prompt pentru analiza întrebării
-│   ├── extract.yaml      # Prompt pentru extragere JSON
-│   └── summary.yaml      # Prompt pentru răspuns final
-└── .env                  # API key
+│   ├── registry.py       # PromptRegistry — încarcă și randează YAML cu Jinja2
+│   ├── planner.yaml      # System prompt pentru agentul ReAct
+│   └── ...
+├── .env.example          # Template pentru .env
+└── provider-switching.md # Documentație arhitectură
 ```
