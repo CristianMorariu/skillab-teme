@@ -32,3 +32,17 @@ class ToolWrapper:
             }
             for name, tool in TOOL_REGISTRY.items()
         ]
+
+    @staticmethod
+    def catalog_langchain() -> list:
+        from langchain_core.tools import StructuredTool
+
+        return [
+            StructuredTool.from_function(
+                func=tool["func"],
+                name=name,
+                description=tool["description"],
+                args_schema=tool["params_model"],
+            )
+            for name, tool in TOOL_REGISTRY.items()
+        ]

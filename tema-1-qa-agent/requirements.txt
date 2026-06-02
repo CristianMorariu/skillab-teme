@@ -4,3 +4,8 @@ pydantic
 pyyaml
 jinja2
 gradio
+langchain-core
+langchain-ollama
+langchain-google-genai
+langchain-anthropic
+langchain-openai
