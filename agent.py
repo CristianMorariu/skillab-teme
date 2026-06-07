@@ -2,7 +2,6 @@ import datetime
 import os
 
 from dotenv import load_dotenv
-from langchain_core.language_models.chat_models import BaseChatModel
 from langchain_core.messages import (
     AIMessage,
     BaseMessage,
@@ -11,6 +10,7 @@ from langchain_core.messages import (
     ToolMessage,
 )
 
+from llm_factory import create_llm
 from prompts.registry import PromptRegistry
 from tools import ToolWrapper
 from tools.registry import TOOL_REGISTRY
@@ -25,37 +25,10 @@ class QAAgent:
 
     def __init__(self, provider: str, system_prompt: str):
         self.provider = provider
-        self.llm = self._create_llm(provider)  # factory
+        self.llm = create_llm(provider)
         self.llm_with_tools = self.llm.bind_tools(ToolWrapper.catalog_langchain())
         self.system_prompt = system_prompt
         self.history: list[BaseMessage] = []  # lista goala la start
-
-    def _create_llm(self, provider: str) -> BaseChatModel:
-        from langchain_anthropic import ChatAnthropic
-        from langchain_google_genai import ChatGoogleGenerativeAI
-        from langchain_ollama import ChatOllama
-        from langchain_openai import ChatOpenAI
-
-        providers = {
-            "anthropic": lambda: ChatAnthropic(model="claude-sonnet-4-5"),
-            "gemini": lambda: ChatGoogleGenerativeAI(
-                model="gemini-2.5-flash", google_api_key=os.getenv("GEMINI_API_KEY")
-            ),
-            "ollama": lambda: ChatOllama(
-                model=os.getenv("OLLAMA_MODEL", "llama3.2:3b"),
-                base_url=os.getenv("OLLAMA_BASE_URL", "http://localhost:11434"),
-            ),
-            "openrouter": lambda: ChatOpenAI(
-                model=os.getenv("OPENROUTER_MODEL", "openai/gpt-oss-120b:free"),
-                api_key=os.getenv("OPENROUTER_API_KEY"),
-                base_url="https://openrouter.ai/api/v1",
-            ),
-        }
-        if provider not in providers:
-            raise ValueError(
-                f"Provider necunoscut: '{provider}'. Disponibili: {list(providers.keys())}"
-            )
-        return providers[provider]()
 
     def chat(self, message: str) -> str:
         """Trimite mesaj, primeste raspuns complet, actualizeaza istoricul."""

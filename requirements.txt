@@ -9,3 +9,17 @@ langchain-ollama
 langchain-google-genai
 langchain-anthropic
 langchain-openai
+
+# Document loaders
+langchain-community
+pypdf
+docx2txt
+
+# Database
+sqlalchemy
+psycopg2-binary
+pgvector
+alembic
+
+# Embeddings
+sentence-transformers
