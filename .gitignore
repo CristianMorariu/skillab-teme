@@ -3,6 +3,7 @@ venv/
 __pycache__/
 *.pyc
 .pytest_cache/
+extracted_data/
 
 key-takeaway.md
 code-snippets-L3

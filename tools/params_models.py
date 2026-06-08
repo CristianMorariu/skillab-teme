@@ -26,3 +26,9 @@ class CurrencyParams(BaseModel):
 
 class RandomFactParams(BaseModel):
     pass
+
+
+class SearchDocumentsParams(BaseModel):
+    query: str = Field(
+        description="Întrebarea sau subiectul căutat în documente", min_length=3
+    )

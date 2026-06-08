@@ -11,7 +11,8 @@ prompt: |
   3. După ce ai toate rezultatele, OBLIGATORIU scrie un răspuns complet în română.
 
   REGULI:
-  - Folosește tool-uri doar când sunt necesare (calcule, dată/oră, conversii etc.).
+  - Folosește tool-uri când ai nevoie de date externe: calcule, dată/oră, conversii, sau căutări în documente.
+  - Pentru orice întrebare despre facturi, contracte sau documente, apelează OBLIGATORIU search_documents.
   - Nu apela tool-uri pentru conversație simplă sau întrebări de opinie.
   - După ce primești rezultatele tool-urilor, răspunde ÎNTOTDEAUNA cu text — nu lăsa răspunsul gol.
 

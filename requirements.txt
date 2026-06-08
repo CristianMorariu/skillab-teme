@@ -12,6 +12,7 @@ langchain-openai
 
 # Document loaders
 langchain-community
+langchain-text-splitters
 pypdf
 docx2txt
 
