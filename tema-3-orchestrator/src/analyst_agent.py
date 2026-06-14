@@ -1,19 +1,20 @@
 """
 Analyst Agent - TODO: Implementează nodurile
 """
+
 import json
 import logging
+import re
 from pathlib import Path
 
 import pandas as pd
-from langgraph.graph import StateGraph, END
+from langgraph.graph import END, StateGraph
+from nl2sql_agent import NL2SQLAgent
 from skillab import get_llm
 from skillab.llm.base import LLMProvider
 from skillab.prompts import PromptRegistry
 from skillab.tools import ToolWrapper
-
-from state import AnalystState, QueryStep, ToolStep, StepResult
-from nl2sql_agent import NL2SQLAgent
+from state import AnalystState, QueryStep, StepResult, ToolStep
 
 logger = logging.getLogger(__name__)
 
@@ -48,11 +49,13 @@ class AnalystAgent:
 
         for table_name, config in tables_config.items():
             schema = json.loads(Path(config["schema_path"]).read_text())
-            self.tables_info.append({
-                "name": table_name,
-                "description": schema.get("description", ""),
-                "columns": list(schema.get("columns", {}).keys()),
-            })
+            self.tables_info.append(
+                {
+                    "name": table_name,
+                    "description": schema.get("description", ""),
+                    "columns": list(schema.get("columns", {}).keys()),
+                }
+            )
             self.sql_agents[table_name] = NL2SQLAgent(
                 table_name=table_name,
                 schema_path=config["schema_path"],
@@ -89,9 +92,33 @@ class AnalystAgent:
         """
         logger.info(f"[PLAN] {state.question}")
 
-        # TODO: implementează
+        prompt = self.prompts.render(
+            "analyst_plan",
+            tables=self.tables_info,
+            tools_catalog=self.tools_catalog,
+            question=state.question,
+            history=[],
+        )
 
-        return {"reasoning": "TODO", "plan": [], "current_step": 0, "slices": {}, "step_results": []}
+        response = self.llm.generate_sync([{"role": "user", "content": prompt}])
+        match = re.search(r"```json\s*(.*?)\s*```", response, re.DOTALL)
+        json_str = match.group(1) if match else response
+        data = json.loads(json_str)
+
+        steps = []
+        for step_data in data["steps"]:
+            if step_data["action"] == "query":
+                steps.append(QueryStep(**step_data))
+            elif step_data["action"] == "tool":
+                steps.append(ToolStep(**step_data))
+
+        return {
+            "reasoning": data["reasoning"],
+            "plan": steps,
+            "current_step": 0,
+            "slices": {},
+            "step_results": [],
+        }
 
     def node_execute_step(self, state: AnalystState) -> dict:
         """Execută pasul curent din plan și stochează rezultatul în slices."""
@@ -128,42 +155,55 @@ class AnalystAgent:
         """Execută query pe tabel via NL2SQL agent."""
         agent = self.sql_agents.get(step.table)
         if not agent:
-            return StepResult(
-                step_id=step.id,
-                action=step.action,
-                description=step.sub_question,
-                status="failed",
-                error=f"No agent for table '{step.table}'",
-            ), None
+            return (
+                StepResult(
+                    step_id=step.id,
+                    action=step.action,
+                    description=step.sub_question,
+                    status="failed",
+                    error=f"No agent for table '{step.table}'",
+                ),
+                None,
+            )
 
         try:
             nl2sql_result = agent.run(step.sub_question)
         except Exception as e:
             logger.exception(f"NL2SQL failed for step {step.id}")
-            return StepResult(
+            return (
+                StepResult(
+                    step_id=step.id,
+                    action=step.action,
+                    description=step.sub_question,
+                    status="failed",
+                    error=str(e),
+                ),
+                None,
+            )
+
+        if nl2sql_result["status"] != "success":
+            return (
+                StepResult(
+                    step_id=step.id,
+                    action=step.action,
+                    description=step.sub_question,
+                    status="failed",
+                    error=nl2sql_result["execution_error"]
+                    or nl2sql_result["validation_error"],
+                ),
+                None,
+            )
+
+        return (
+            StepResult(
                 step_id=step.id,
                 action=step.action,
                 description=step.sub_question,
-                status="failed",
-                error=str(e),
-            ), None
-
-        if nl2sql_result.status != "success":
-            return StepResult(
-                step_id=step.id,
-                action=step.action,
-                description=step.sub_question,
-                status="failed",
-                error=nl2sql_result.execution_error or nl2sql_result.validation_error,
-            ), None
-
-        return StepResult(
-            step_id=step.id,
-            action=step.action,
-            description=step.sub_question,
-            status="success",
-            row_count=len(nl2sql_result.result),
-        ), nl2sql_result.result
+                status="success",
+                row_count=len(nl2sql_result["result"]),
+            ),
+            nl2sql_result["result"],
+        )
 
     def _execute_tool(
         self,
@@ -174,13 +214,16 @@ class AnalystAgent:
         # Validare input_steps - verifică că ID-urile există în slices
         for input_id in step.input_steps:
             if input_id not in slices:
-                return StepResult(
-                    step_id=step.id,
-                    action=step.action,
-                    description=f"{step.tool_name}",
-                    status="failed",
-                    error=f"Input step '{input_id}' not found in slices",
-                ), None
+                return (
+                    StepResult(
+                        step_id=step.id,
+                        action=step.action,
+                        description=f"{step.tool_name}",
+                        status="failed",
+                        error=f"Input step '{input_id}' not found in slices",
+                    ),
+                    None,
+                )
 
         # Construiește argumentele pentru tool (convenție: input_dfs + params)
         input_dfs = [slices[input_id] for input_id in step.input_steps]
@@ -190,30 +233,39 @@ class AnalystAgent:
         try:
             result_df = ToolWrapper.call(step.tool_name, args)
         except NotImplementedError as e:
-            return StepResult(
-                step_id=step.id,
-                action=step.action,
-                description=f"{step.tool_name}",
-                status="failed",
-                error=f"Tool not implemented: {e}",
-            ), None
+            return (
+                StepResult(
+                    step_id=step.id,
+                    action=step.action,
+                    description=f"{step.tool_name}",
+                    status="failed",
+                    error=f"Tool not implemented: {e}",
+                ),
+                None,
+            )
         except Exception as e:
             logger.exception(f"Tool {step.tool_name} failed")
-            return StepResult(
+            return (
+                StepResult(
+                    step_id=step.id,
+                    action=step.action,
+                    description=f"{step.tool_name}",
+                    status="failed",
+                    error=str(e),
+                ),
+                None,
+            )
+
+        return (
+            StepResult(
                 step_id=step.id,
                 action=step.action,
-                description=f"{step.tool_name}",
-                status="failed",
-                error=str(e),
-            ), None
-
-        return StepResult(
-            step_id=step.id,
-            action=step.action,
-            description=f"{step.tool_name}({step.params})",
-            status="success",
-            row_count=len(result_df),
-        ), result_df
+                description=f"{step.tool_name}({step.params})",
+                status="success",
+                row_count=len(result_df),
+            ),
+            result_df,
+        )
 
     def node_synthesize(self, state: AnalystState) -> dict:
         """
@@ -228,9 +280,17 @@ class AnalystAgent:
         """
         logger.info("[SYNTHESIZE]")
 
-        # TODO: implementează
+        final_df = state.slices.get(state.plan[-1].id) if state.plan else None
+        prompt = self.prompts.render(
+            "analyst_synthesize",
+            question=state.question,
+            reasoning=state.reasoning,
+            results=state.step_results,
+            final_data=final_df.head(10).to_string() if final_df is not None else "",
+        )
 
-        return {"answer": "TODO", "status": "failed"}
+        answer = self.llm.generate_sync([{"role": "user", "content": prompt}])
+        return {"answer": answer, "status": "success"}
 
     # === ROUTING ===
 
@@ -250,8 +310,12 @@ class AnalystAgent:
         graph.add_node("synthesize", self.node_synthesize)
 
         graph.set_entry_point("make_plan")
-        graph.add_conditional_edges("make_plan", self._route_after_plan, ["execute_step", "synthesize"])
-        graph.add_conditional_edges("execute_step", self._route_after_execute, ["execute_step", "synthesize"])
+        graph.add_conditional_edges(
+            "make_plan", self._route_after_plan, ["execute_step", "synthesize"]
+        )
+        graph.add_conditional_edges(
+            "execute_step", self._route_after_execute, ["execute_step", "synthesize"]
+        )
         graph.add_edge("synthesize", END)
 
         return graph.compile()
