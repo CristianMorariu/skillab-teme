@@ -3,10 +3,11 @@ Tool implementations — funcțiile efective ale tool-urilor.
 
 Convenție: toate tools primesc params cu `input_dfs` (lista de DataFrames) + parametri specifici.
 """
+
 import pandas as pd
 
+from .params import FilterDataParams, JoinDataParams
 from .registry import register_tool
-from .params import JoinDataParams, FilterDataParams
 
 
 @register_tool
@@ -26,11 +27,15 @@ def join_data(params: JoinDataParams) -> pd.DataFrame:
     Returns:
         DataFrame rezultat după join
     """
-    # TODO: implementează
-    # left_df = params.input_dfs[0]
-    # right_df = params.input_dfs[1]
-    # return pd.merge(left_df, right_df, left_on=params.left_key, right_on=params.right_key, how=params.how)
-    raise NotImplementedError("TODO: Implementează join_data")
+    left_df = params.input_dfs[0]
+    right_df = params.input_dfs[1]
+    return pd.merge(
+        left_df,
+        right_df,
+        left_on=params.left_key,
+        right_on=params.right_key,
+        how=params.how,
+    )
 
 
 @register_tool
@@ -50,13 +55,25 @@ def filter_data(params: FilterDataParams) -> pd.DataFrame:
     Returns:
         DataFrame filtrat
     """
-    # TODO: implementează
-    # df = params.input_dfs[0]
-    # col = df[params.column]
-    # if params.operator == "==":
-    #     mask = col == params.value
-    # elif params.operator == "contains":
-    #     mask = col.astype(str).str.contains(params.value, case=False, na=False)
-    # ...
-    # return df[mask]
-    raise NotImplementedError("TODO: Implementează filter_data")
+
+    df = params.input_dfs[0]
+    col = df[params.column]
+    try:
+        value = float(params.value)
+    except (ValueError, TypeError):
+        value = params.value
+    if params.operator == "==":
+        mask = col == value
+    elif params.operator == "contains":
+        mask = col.astype(str).str.contains(params.value, case=False, na=False)
+    elif params.operator == "!=":
+        mask = col != value
+    elif params.operator == ">":
+        mask = col > value
+    elif params.operator == "<":
+        mask = col < value
+    elif params.operator == ">=":
+        mask = col >= value
+    elif params.operator == "<=":
+        mask = col <= value
+    return df[mask]

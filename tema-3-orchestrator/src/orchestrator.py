@@ -10,17 +10,18 @@ Flow:
 
 TODO pentru studenți: node_evaluate, node_answer
 """
+
 import logging
+import re
 from pathlib import Path
 from typing import Literal
 
-from langgraph.graph import StateGraph, START, END
+from langgraph.graph import END, START, StateGraph
+from rag_agent import RAGAgent, RAGAgentConfig
 from skillab import get_llm
 from skillab.llm.base import LLMProvider
 from skillab.prompts import PromptRegistry
-
-from state import OrchestratorState, OrchestratorFeedback
-from rag_agent import RAGAgent, RAGAgentConfig
+from state import OrchestratorFeedback, OrchestratorState
 
 logger = logging.getLogger(__name__)
 
@@ -70,73 +71,66 @@ class Orchestrator:
         )
 
         return {
-            "rag_result": rag_result.result,
+            "rag_result": rag_result["result"],
             "iteration": state.iteration + 1,
         }
 
     def node_evaluate(self, state: OrchestratorState) -> dict:
-        """
-        TODO: Evaluează dacă contextul RAG e suficient.
+        # 1. Construiește context din state.rag_result.results:
+        context = "\n\n".join(
+            f"[{r.file_name}]\n{r.content}" for r in state.rag_result.results
+        )
+        # 2.  Rendere prompt
+        prompt = self.prompts.render(
+            "rag_evaluate",
+            query=state.query,
+            context=context,
+            max_score=state.rag_result.max_score,
+            avg_score=state.rag_result.avg_score,
+        )
+        # 3. Apelam LLM
+        response = self.llm.generate_sync([{"role": "user", "content": prompt}])
+        # 4. Parsam JSON
+        match = re.search(r"```json\s*(.*?)\s*```", response, re.DOTALL)
+        json_str = match.group(1) if match else response
+        feedback = OrchestratorFeedback.model_validate_json(json_str)
 
-        1. Construiește context din state.rag_result.results:
-           context = "\\n\\n".join(f"[{r.file_name}]\\n{r.content}" for r in results)
-
-        2. Renderează prompt "rag_evaluate" cu:
-           - query=state.query
-           - context=context
-           - max_score=state.rag_result.max_score
-           - avg_score=state.rag_result.avg_score
-
-        3. Apelează LLM:
-           response = self.llm.generate_sync([{"role": "user", "content": prompt}])
-
-        4. Parsează JSON în Pydantic:
-           - Extrage JSON din ```json ... ```
-           - feedback = OrchestratorFeedback.model_validate_json(json_str)
-
-        5. Return {"feedback": feedback}
-        """
         logger.info(f"[EVALUATE] iter {state.iteration}")
-
-        # TODO: implementează
-
-        return {"feedback": OrchestratorFeedback(can_answer=False, missing_info="TODO")}
+        return {"feedback": feedback}
 
     def node_answer(self, state: OrchestratorState) -> dict:
-        """
-        TODO: Generează răspunsul final.
-
-        1. Construiește context din state.rag_result.results:
-           context = "\\n\\n".join(f"[{r.file_name}]\\n{r.content}" for r in results)
-
-        2. Renderează prompt "rag_answer" cu:
-           - query=state.query
-           - context=context
-
-        3. Apelează LLM:
-           answer = self.llm.generate_sync([{"role": "user", "content": prompt}])
-
-        4. Determină status:
-           - "success" dacă feedback.can_answer == True
-           - "partial" dacă am răspuns dar fără can_answer
-           - "failed" dacă nu avem rezultate
-
-        5. Return {"answer": answer, "status": status}
-        """
         logger.info("[ANSWER]")
 
-        # TODO: implementează
+        context = "\n\n".join(
+            f"[{r.file_name}]\n{r.content}" for r in state.rag_result.results
+        )
 
-        return {"answer": "TODO", "status": "failed"}
+        prompt = self.prompts.render(
+            "rag_answer",
+            query=state.query,
+            context=context,
+        )
+        answer = self.llm.generate_sync([{"role": "user", "content": prompt}])
+        status = "partial"
+        if state.feedback and state.feedback.can_answer:
+            status = "success"
+        elif not state.rag_result.results:
+            status = "failed"
+
+        return {"answer": answer, "status": status}
 
     # === ROUTING ===
 
-    def _should_continue(self, state: OrchestratorState) -> Literal["call_rag", "answer"]:
+    def _should_continue(
+        self, state: OrchestratorState
+    ) -> Literal["call_rag", "answer"]:
         """Decide dacă continuăm căutarea sau răspundem."""
         if state.feedback and state.feedback.can_answer:
             return "answer"
         if state.iteration >= self.config.max_iterations:
-            logger.info(f"[ROUTING] Max iterations ({self.config.max_iterations}) reached")
+            logger.info(
+                f"[ROUTING] Max iterations ({self.config.max_iterations}) reached"
+            )
             return "answer"
         return "call_rag"
 
@@ -155,7 +149,7 @@ class Orchestrator:
         graph.add_conditional_edges(
             "evaluate",
             self._should_continue,
-            {"call_rag": "call_rag", "answer": "answer"}
+            {"call_rag": "call_rag", "answer": "answer"},
         )
         graph.add_edge("answer", END)
 

@@ -8,7 +8,7 @@ __pycache__/
 .idea/
 
 # Data (prea mare pentru git)
-data/*.dump  # decomentează dacă nu vrei dump-ul în git
+data/*.dump
 data/documents-sql/*.xlsx
 
 .DS_Store

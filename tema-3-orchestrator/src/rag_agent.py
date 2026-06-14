@@ -7,20 +7,20 @@ Flow:
 - refine: dacă are feedback, rafinează query-ul (TODO pentru studenți)
 - search: caută în pgvector (COMPLET)
 """
+
 import json
 import logging
 import re
 from pathlib import Path
 
-from langgraph.graph import StateGraph, START, END
+from langgraph.graph import END, START, StateGraph
 from skillab.llm.base import LLMProvider
 from skillab.prompts import PromptRegistry
-
 from state import (
     RAGAgentState,
     RAGSearchResult,
-    SearchResultItem,
     RefinedQuery,
+    SearchResultItem,
 )
 
 logger = logging.getLogger(__name__)
@@ -75,10 +75,33 @@ class RAGAgent:
         """
         logger.info(f"[REFINE] feedback={state.feedback is not None}")
 
-        # TODO: implementează
+        if state.feedback is None:
+            return {"refined": RefinedQuery(query=state.query)}
 
-        # Placeholder: returnează query-ul original fără rafinare
-        return {"refined": RefinedQuery(query=state.query)}
+        found_summary = (
+            "\n".join(
+                f"- [{r.file_name}] (score={r.score:.2f}): {r.content[:100]}..."
+                for r in state.result.results
+            )
+            if state.result and state.result.results
+            else "Nimic găsit."
+        )
+        prompt = self.prompts.render(
+            "rag_refine",
+            original_query=state.query,
+            current_query=state.current_query,
+            found_summary=found_summary,
+            max_score=state.result.max_score if state.result else 0.0,
+            avg_score=state.result.avg_score if state.result else 0.0,
+            current_threshold=state.current_threshold or self.config.default_threshold,
+            can_answer=state.feedback.can_answer,
+            missing_info=state.feedback.missing_info,
+            suggestion=state.feedback.suggestion,
+        )
+        response = self.llm.generate_sync([{"role": "user", "content": prompt}])
+        match = re.search(r"```json\s*(.*?)\s*```", response, re.DOTALL)
+        json_str = match.group(1) if match else response
+        return {"refined": RefinedQuery.model_validate_json(json_str)}
 
     def node_search(self, state: RAGAgentState) -> dict:
         """Caută chunks similare în pgvector. COMPLET - nu modifica."""
@@ -88,22 +111,24 @@ class RAGAgent:
         query = state.current_query
         threshold = state.current_threshold or self.config.default_threshold
 
-        logger.info(f"[SEARCH] '{query}' (top_k={self.config.top_k}, threshold={threshold})")
+        logger.info(
+            f"[SEARCH] '{query}' (top_k={self.config.top_k}, threshold={threshold})"
+        )
 
         with transaction() as db:
             rag = RAGService(db)
             results = rag.search(query, top_k=self.config.top_k, threshold=threshold)
 
-        # Transformă în SearchResultItem
-        items = [
-            SearchResultItem(
-                content=chunk.content,
-                summary=chunk.summary or "",
-                file_name=chunk.file_name,
-                score=score,
-            )
-            for chunk, score in results
-        ]
+            # Transformă în SearchResultItem (înăuntru tranzacției — chunk e ORM object)
+            items = [
+                SearchResultItem(
+                    content=chunk.content,
+                    summary=chunk.summary or "",
+                    file_name=chunk.file_name,
+                    score=score,
+                )
+                for chunk, score in results
+            ]
 
         # Calculează statistici
         scores = [item.score for item in items]
