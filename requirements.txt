@@ -1,26 +1,23 @@
-google-genai
-python-dotenv
-pydantic
-pyyaml
-jinja2
-gradio
-langchain-core
-langchain-ollama
-langchain-google-genai
-langchain-anthropic
-langchain-openai
-
-# Document loaders
-langchain-community
-langchain-text-splitters
-pypdf
-docx2txt
-
 # Database
-sqlalchemy
+sqlalchemy>=2.0
 psycopg2-binary
-pgvector
 alembic
+pgvector
 
-# Embeddings
+# Data processing
+pandas
+openpyxl
+python-docx
+
+# ML / Embeddings
 sentence-transformers
+
+# LLM (unul din acestea)
+openai
+google-generativeai
+
+# Utils
+python-dotenv
+tqdm
+pydantic>=2.0
+langgraph

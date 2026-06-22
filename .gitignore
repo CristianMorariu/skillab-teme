@@ -1,11 +1,31 @@
-venv/
+# Environment
 .env
+venv/
 __pycache__/
 *.pyc
 .pytest_cache/
+
+# IDE
+.vscode/
+.idea/
+
+# Data (prea mare pentru git)
+data/*.dump
+data/documents-sql/*.xlsx
+
+# Mac
+.DS_Store
+
+# Alembic / SQLite
+*.db
+
+# Artefacte tema 1/2 (daca mai apar)
 extracted_data/
 
+# Planificare + materiale de curs (raman locale, nu pe GitHub)
 key-takeaway.md
 code-snippets-L3
 code-snippets-L4
 code-snippets-L5
+code-snnipets-L7
+code_snippets-L8
