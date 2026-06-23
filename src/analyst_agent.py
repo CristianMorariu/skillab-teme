@@ -9,6 +9,7 @@ from pathlib import Path
 
 import pandas as pd
 from langgraph.graph import END, StateGraph
+from memory import PersistentMemory
 from nl2sql_agent import NL2SQLAgent
 from skillab import get_llm
 from skillab.llm.base import LLMProvider
@@ -97,7 +98,7 @@ class AnalystAgent:
             tables=self.tables_info,
             tools_catalog=self.tools_catalog,
             question=state.question,
-            history=[],
+            history=state.history,
         )
 
         response = self.llm.generate_sync([{"role": "user", "content": prompt}])
@@ -320,7 +321,18 @@ class AnalystAgent:
 
         return graph.compile()
 
-    def chat(self, question: str) -> AnalystState:
-        """Execută agentul."""
-        initial = AnalystState(question=question)
-        return self.graph.invoke(initial)
+    def chat(self, question: str, session_id: str | None = None) -> AnalystState:
+        """Load → invoke → save. Dacă session_id e None, rulează fără memorie."""
+        memory = PersistentMemory() if session_id else None
+        history = memory.load_messages(session_id) if memory else []
+        if memory:
+            logger.info(f"[MEMORY] {len(history)} mesaje incarcate pentru '{session_id}'")
+
+        initial = AnalystState(question=question, history=history)
+        result = self.graph.invoke(initial)
+
+        if memory:
+            memory.save_message(session_id, "user", question)
+            memory.save_message(session_id, "assistant", result.get("answer", ""))
+
+        return result

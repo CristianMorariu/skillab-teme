@@ -17,6 +17,7 @@ from pathlib import Path
 from typing import Literal
 
 from langgraph.graph import END, START, StateGraph
+from memory import PersistentMemory
 from rag_agent import RAGAgent, RAGAgentConfig
 from skillab import get_llm
 from skillab.llm.base import LLMProvider
@@ -109,6 +110,7 @@ class Orchestrator:
             "rag_answer",
             query=state.query,
             context=context,
+            history=state.history,
         )
         answer = self.llm.generate_sync([{"role": "user", "content": prompt}])
         status = "partial"
@@ -118,6 +120,24 @@ class Orchestrator:
             status = "failed"
 
         return {"answer": answer, "status": status}
+
+    def chat(self, session_id: str, query: str) -> dict:
+        """Load → invoke → save. Pattern complet cu memorie persistentă."""
+        memory = PersistentMemory()
+
+        # 1. LOAD
+        history = memory.load_messages(session_id)
+        logger.info(f"[MEMORY] {len(history)} mesaje incarcate pentru '{session_id}'")
+
+        # 2. INVOKE
+        app = self.build_graph()
+        result = app.invoke(OrchestratorState(query=query, history=history))
+
+        # 3. SAVE
+        memory.save_message(session_id, "user", query)
+        memory.save_message(session_id, "assistant", result.get("answer", ""))
+
+        return result
 
     # === ROUTING ===
 

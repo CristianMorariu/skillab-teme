@@ -44,6 +44,7 @@ class OrchestratorFeedback(BaseModel):
 class OrchestratorState(BaseModel):
     """State pentru Orchestrator."""
     query: str                                      # întrebarea originală
+    history: list[dict] = Field(default_factory=list)  # conversație anterioară
     rag_result: RAGSearchResult | None = None       # chunks de la RAG Agent
     feedback: OrchestratorFeedback | None = None    # evaluarea orchestratorului
     iteration: int = 0
@@ -135,6 +136,7 @@ class AnalystState(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
     question: str
+    history: list[dict] = Field(default_factory=list)  # conversație anterioară
     reasoning: str = ""
     plan: list[QueryStep | ToolStep] = Field(default_factory=list)
     current_step: int = 0

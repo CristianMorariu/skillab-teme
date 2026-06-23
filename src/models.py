@@ -60,6 +60,17 @@ class AchizitieDirecta(Base):
     cpv_code = Column(String(200))
 
 
+class ChatMessage(Base):
+    """Mesaj dintr-o conversație persistentă."""
+    __tablename__ = "chat_messages"
+
+    id = Column(Integer, primary_key=True)
+    session_id = Column(String(100), nullable=False, index=True)
+    role = Column(String(20), nullable=False)   # "user" | "assistant"
+    content = Column(Text, nullable=False)
+    created_at = Column(DateTime, default=datetime.utcnow)
+
+
 class AnuntInitiere(Base):
     """Anunț inițiere licitație."""
     __tablename__ = "anunturi_initiere"

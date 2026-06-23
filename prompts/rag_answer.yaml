@@ -1,13 +1,20 @@
 name: rag_answer
-version: "1.0.0"
-description: Generează răspunsul final
+version: "1.1.0"
+description: Generează răspunsul final, cu suport pentru istoricul conversației
 
 prompt: |
   Răspunde la întrebare folosind contextul.
+
+  {% if history %}
+  CONVERSAȚIE ANTERIOARĂ:
+  {% for msg in history %}
+  {{ msg.role }}: {{ msg.content }}
+  {% endfor %}
+  {% endif %}
 
   ÎNTREBARE: {{ query }}
 
   CONTEXT:
   {{ context }}
 
-  Răspunde concis. Menționează sursa când citezi.
+  Răspunde concis. Menționează sursa când citezi. Dacă există conversație anterioară, ține cont de ea.
