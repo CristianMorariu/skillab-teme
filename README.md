@@ -1,8 +1,10 @@
-# Temă: Multi-Agent System
+# Multi-Agent System + Optimizări
 
-Două sisteme:
-1. **Orchestrator + RAG** - caută în documente
-2. **Analyst + NL2SQL** - query-uri SQL
+Sistem multi-agent cu două sub-sisteme, optimizat cu memorie conversațională, prompt caching și un intent classifier care rutează între ele.
+
+1. **Orchestrator + RAG** — caută în documente (facturi, contracte, clienți)
+2. **Analyst + NL2SQL** — query-uri SQL pe datele SEAP (achiziții, anunțuri)
+3. **Intent Router** — decide automat care sub-sistem răspunde
 
 ## Arhitectură
 
@@ -91,133 +93,119 @@ Două sisteme:
 └──────────────────────────────┘
 ```
 
-**Flow Analyst:**
-1. `make_plan` - LLM generează plan cu QueryStep și ToolStep
-2. `execute_step` - execută fiecare pas:
-   - QueryStep → apelează NL2SQL Agent → DataFrame în `slices[id]`
-   - ToolStep → apelează tool (join/filter) → DataFrame în `slices[id]`
-3. `synthesize` - LLM generează răspuns din rezultate
+**Flow Analyst:** `make_plan` (LLM generează plan cu QueryStep/ToolStep) → `execute_step` (rulează fiecare pas: query → NL2SQL, tool → join/filter, rezultat în `slices[id]`) → `synthesize` (răspuns final din rezultate).
 
-**Flow NL2SQL:**
-1. `get_context` - încarcă schema tabelului
-2. `generate_sql` - LLM generează SQL
-3. `validate_sql` - validează cu sqlparse
-4. `execute_sql` - execută în DB → DataFrame
-5. `handle_error` - dacă eroare, LLM corectează SQL și retry
+**Flow NL2SQL:** `get_context` (schema tabelului) → `generate_sql` → `validate_sql` (sqlparse) → `execute_sql` (DataFrame) → la eroare `handle_error` corectează SQL-ul și reîncearcă (retry < max).
 
 **Prompturi:** `analyst_plan.yaml`, `analyst_synthesize.yaml`, `nl2sql_generate.yaml`, `nl2sql_error.yaml`
 
-## Setup
+---
+
+## Optimizări (Tema 4)
+
+Trei optimizări peste sistemul multi-agent.
+
+### 1. Conversation Memory (persistată în Postgres)
+
+Context conversațional persistent între request-uri, salvat în Postgres (supraviețuiește restart-ului).
+
+- Tabel `chat_messages` (`session_id`, `role`, `content`, `created_at`) — migrația `alembic/versions/004_create_chat_messages.py`.
+- `src/memory.py`: `ChatMessageRepository` (add / latest) + `PersistentMemory` (load → invoke → save, fereastră de 10 mesaje).
+- Integrat în ambii agenți prin `chat(session_id, query)`; promptul de răspuns randează istoricul.
+- **Demo:** `test_memory()` în `main.py` — două ture cu același `session_id`, a doua referindu-se la prima.
+
+### 2. Prompt Caching (Anthropic)
+
+Prefixul static mare (system + documente reale din `data/documents/`) e marcat `cache_control: ephemeral`. Primul apel scrie cache-ul, următoarele îl citesc la 0.1x.
+
+- **Livrabil:** `scripts/prompt_caching.py` — măsoară economia reală (nu o afirmă).
+- Apel 1 (MISS): `cache_creation > 0`. Apel 2 (HIT): `cache_read > 0` → ~90% reducere pe inputul cache-uit.
+- Necesită `ANTHROPIC_API_KEY` în `.env`. Prag minim de cache: 2048 tokeni (familia Claude 4.x).
+
+### 3. Intent Classifier (scikit-learn) ca router
+
+Router local `search` (→ Orchestrator/RAG) / `analyze` (→ Analyst/NL2SQL). Înlocuiește un apel LLM de routing cu un clasificator TF-IDF + LogisticRegression; cade pe LLM doar când confidence < 0.6.
+
+- `src/intent_data.py`: date de antrenare + test (held-out).
+- `scripts/train_intent.py`: antrenează și salvează `models/intent_classifier.joblib`.
+- `src/intent.py`: `detect_intent` (local) + `route` (cu fallback LLM).
+- **Demo:** `test_router()` în `main.py`.
+- **Comparație:** `scripts/compare_intent.py` — LLM vs sklearn pe accuracy, latență, cost.
+
+---
+
+## Setup (o singură dată)
 
 ```bash
+# 1. Dependențe
 pip install -r requirements.txt
 pip install -e skillab-py
 
+# 2. Bază de date (Postgres + pgvector pe portul 5433)
 docker-compose up -d
 alembic upgrade head
 
-# Restaurează date (694k achiziții, 8k anunțuri, 135 chunks)
-docker exec -i exercise_orchestrator-postgres-1 pg_restore -U demo -d rag_demo --data-only < data/rag_demo.dump
+# 3. Restaurează datele (694k achiziții, 8k anunțuri, 135 chunks RAG)
+docker exec -i skillab-teme-postgres-1 pg_restore -U demo -d rag_demo --data-only < data/rag_demo.dump
 
-cp .env.example .env  # editează API key
+# 4. Variabile de mediu
+cp .env.example .env
+#   - LLM_PROVIDER + cheia aferentă (agenții rulează pe acest provider)
+#   - ANTHROPIC_API_KEY  (necesar doar pentru prompt caching)
+```
+
+## Ce rulezi și în ce ordine
+
+```bash
+# 1. OBLIGATORIU ÎNTÂI — antrenează classifier-ul.
+#    main.py și compare_intent.py importă modelul la pornire; fără el crapă.
+python scripts/train_intent.py
+
+# 2. Demo agenți + memorie + router (din src/)
+cd src && python main.py        # rulează test_memory() + test_router()
+
+# 3. Demo prompt caching (necesită ANTHROPIC_API_KEY)
+python scripts/prompt_caching.py
+
+# 4. Comparație intent classifier: LLM vs sklearn
+python scripts/compare_intent.py
 ```
 
 ## Structură
 
 ```
-├── alembic/           # Migrații DB
-├── data/              # CSV-uri, documente
-├── prompts/           # YAML prompts
-├── scripts/           # Seed scripts
-├── skillab-py/        # LLM, prompts, tools
-│   └── src/skillab/tools/
-│       ├── implementations.py  # TODO: join_data, filter_data
-│       └── params.py           # Pydantic params
+├── alembic/                  # Migrații DB (004 = chat_messages)
+├── data/
+│   ├── documents/            # DOCX-uri reale (prefix pentru prompt caching)
+│   └── rag_demo.dump         # Dump date SEAP + chunks
+├── models/                   # intent_classifier.joblib (generat de train_intent.py)
+├── prompts/                  # YAML prompts
+├── scripts/
+│   ├── prompt_caching.py     # Demo prompt caching (Tema 4)
+│   ├── train_intent.py       # Antrenează intent classifier (Tema 4)
+│   ├── compare_intent.py     # Comparație LLM vs sklearn (Tema 4)
+│   └── seed_*.py             # Seed DB
+├── skillab-py/               # Pachet local: LLM provider switching, prompts, tools
 └── src/
-    ├── database.py        # Connection + transaction
-    ├── models.py          # SQLAlchemy models
-    ├── repositories.py    # Repository pattern
-    ├── rag_service.py     # pgvector search service
-    ├── state.py           # Pydantic states
-    ├── rag_agent.py       # TODO: node_refine
-    ├── orchestrator.py    # TODO: node_evaluate, node_answer
-    ├── nl2sql_agent.py    # TODO: node_generate_sql, node_validate_sql, node_execute_sql
-    ├── analyst_agent.py   # TODO: node_make_plan, node_synthesize
-    └── main.py
+    ├── database.py           # Connection + transaction
+    ├── models.py             # SQLAlchemy models (+ ChatMessage)
+    ├── repositories.py       # Repository pattern
+    ├── rag_service.py        # pgvector search service
+    ├── memory.py             # Conversation memory (Tema 4)
+    ├── intent.py             # Intent inference + router (Tema 4)
+    ├── intent_data.py        # Date antrenare/test classifier (Tema 4)
+    ├── state.py              # Pydantic states (+ history)
+    ├── rag_agent.py          # RAG worker
+    ├── orchestrator.py       # Orchestrator + chat(session_id)
+    ├── nl2sql_agent.py       # NL2SQL worker
+    ├── analyst_agent.py      # Analyst + chat(session_id)
+    └── main.py               # test_memory(), test_router()
 ```
 
-## De implementat
+## Plan format (Analyst)
 
-### 1. RAG Agent (`src/rag_agent.py`)
-```python
-def node_refine(self, state: RAGAgentState) -> dict:
-    """
-    Dacă state.feedback există:
-    1. Renderează prompt "rag_refine"
-    2. Apelează LLM
-    3. Parsează JSON în RefinedQuery.model_validate_json()
-    4. Return {"refined": refined_query}
+LLM-ul generează un plan JSON cu pași `query` (NL2SQL) și `tool` (join/filter):
 
-    Dacă nu există feedback:
-    - Return {"refined": RefinedQuery(query=state.query)}
-    """
-```
-
-### 2. Orchestrator (`src/orchestrator.py`)
-```python
-def node_evaluate(self, state: OrchestratorState) -> dict:
-    """
-    1. Construiește context din state.rag_result.results
-    2. Renderează prompt "rag_evaluate"
-    3. Apelează LLM
-    4. Parsează în OrchestratorFeedback.model_validate_json()
-    5. Return {"feedback": feedback}
-    """
-
-def node_answer(self, state: OrchestratorState) -> dict:
-    """
-    1. Construiește context din state.rag_result.results
-    2. Renderează prompt "rag_answer"
-    3. Apelează LLM
-    4. Return {"answer": answer, "status": "success"|"partial"|"failed"}
-    """
-```
-
-### 3. NL2SQL Agent (`src/nl2sql_agent.py`)
-```python
-def node_generate_sql(self, state) -> dict:
-    # Generează SQL din întrebare
-
-def node_validate_sql(self, state) -> dict:
-    # Validează SQL (sqlparse)
-
-def node_execute_sql(self, state) -> dict:
-    # Execută SQL, returnează DataFrame
-```
-
-### 4. Analyst Agent (`src/analyst_agent.py`)
-```python
-def node_make_plan(self, state) -> dict:
-    # Creează plan cu QueryStep și ToolStep
-
-def node_synthesize(self, state) -> dict:
-    # Sintetizează răspuns din state.slices
-```
-
-### 5. Tools (`skillab-py/src/skillab/tools/implementations.py`)
-```python
-@register_tool
-def join_data(params: JoinDataParams) -> pd.DataFrame:
-    # pd.merge(params.input_dfs[0], params.input_dfs[1], ...)
-
-@register_tool
-def filter_data(params: FilterDataParams) -> pd.DataFrame:
-    # params.input_dfs[0][mask]
-```
-
-## Plan format
-
-LLM generează plan JSON:
 ```json
 [
   {"id": "q1", "action": "query", "table": "achizitii", "sub_question": "..."},
@@ -227,34 +215,4 @@ LLM generează plan JSON:
 ]
 ```
 
-Rezultate în `state.slices["q1"]`, `state.slices["joined"]`, etc.
-
-## Hints
-
-```python
-# Render prompt
-prompt = self.prompts.render("rag_evaluate", query=q, context=ctx, ...)
-
-# LLM call
-response = self.llm.generate_sync([{"role": "user", "content": prompt}])
-
-# Parse JSON direct în Pydantic (recomandat)
-import re
-match = re.search(r'```json\s*(.*?)\s*```', response, re.DOTALL)
-json_str = match.group(1) if match else response
-feedback = OrchestratorFeedback.model_validate_json(json_str)
-
-# SQL execution
-with transaction() as session:
-    result = session.execute(text(sql_query))
-    df = pd.DataFrame(result.mappings().all())
-
-# Tool catalog pentru prompt
-tools_catalog = ToolWrapper.to_prompt_string()
-```
-
-## Run
-
-```bash
-cd src && python main.py
-```
+Rezultatele intermediare se acumulează în `state.slices["q1"]`, `state.slices["joined"]`, etc.

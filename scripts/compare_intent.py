@@ -1,6 +1,6 @@
 """
 Compara Intent Classifier (sklearn local) vs LLM pe: accuracy, latenta, cost.
-Ruleaza (din radacina):  $env:PYTHONUTF8=1; python src/compare_intent.py
+Ruleaza (din radacina):  $env:PYTHONUTF8=1; python scripts/compare_intent.py
 """
 
 import os
