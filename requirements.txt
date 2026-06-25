@@ -26,3 +26,5 @@ sqlparse
 
 # Intent Classifier
 scikit-learn
+
+fastmcp

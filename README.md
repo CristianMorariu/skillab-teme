@@ -134,6 +134,57 @@ Router local `search` (→ Orchestrator/RAG) / `analyze` (→ Analyst/NL2SQL). �
 
 ---
 
+## MCP & Guardrails (Tema 5)
+
+Cei doi agenți sunt expuși ca **tool-uri MCP** într-un singur server, protejat de guardrails la intrare.
+
+### Server MCP cu două tool-uri
+
+`src/mcp_server.py` (FastMCP) expune:
+
+| Tool | Apelează | Input → Output |
+|------|----------|----------------|
+| `data_analyst(question)` | `AnalystAgent` (NL2SQL + plan) | `question` → `{status, answer}` |
+| `orchestrator(query)` | `Orchestrator` (RAG supervizat) | `query` → `{status, answer, sources}` |
+
+Agenții se construiesc **lazy** (la primul apel), ca pornirea serverului și `tools/list` să meargă chiar fără DB pornit. Tool-urile sunt `async` și împing munca blocantă a agentului pe un thread (`asyncio.to_thread`), ca să nu intre în conflict cu event-loop-ul serverului (agenții folosesc `generate_sync` cu loop propriu).
+
+```bash
+python src/mcp_server.py            # HTTP pe http://127.0.0.1:8000/mcp (recomandat)
+python src/mcp_server.py stdio      # STDIO (vezi nota de mai jos)
+```
+
+> **Notă transport:** pe Windows, stdio se blochează cu acest workload (deadlock în pipe-urile asyncio subprocess + loop-urile imbricate din `generate_sync`). **Folosește HTTP** — e și transportul recomandat în materialul L10.
+
+### Guardrails (la granița serverului, înainte de agent)
+
+`src/guardrails.py` — fiecare input trece prin două filtre, **fail-closed**:
+
+1. **Input validation** (Pydantic): tip + dimensiune (3–2000 caractere) + câmpuri permise (`extra="forbid"` respinge orice câmp necunoscut).
+2. **Prompt-injection guard** (denylist regex): blochează „ignore previous instructions", roluri false (`system:`), exfiltrare de secrete, jailbreak (DAN), SQL injection etc.
+
+La orice violare se întoarce `{status: "blocked", error: ...}` — agentul nu mai e apelat (nu se cheltuie LLM/DB).
+
+### Testare din Claude Code (HTTP)
+
+`.mcp.json` (project-scoped, HTTP) e deja configurat. Pașii:
+
+```bash
+# 1. Pornește DB-ul temei (Postgres pe 5433)
+docker start tema-3-orchestrator-postgres-1      # sau: docker-compose up -d
+
+# 2. Pornește serverul MCP — lasă terminalul deschis (moare dacă îl închizi)
+python src/mcp_server.py
+
+# 3. În Claude Code: ar trebui să apară conectat
+claude mcp list                                  # skillab-agents ✓ connected
+# apoi întreabă în chat: "Folosește data_analyst pentru top 5 furnizori după valoare"
+```
+
+Primul apel durează ~20s (lazy-init: model embeddings + DB + LLM); următoarele sunt mai rapide.
+
+---
+
 ## Setup (o singură dată)
 
 ```bash
@@ -174,6 +225,7 @@ python scripts/compare_intent.py
 ## Structură
 
 ```
+├── .mcp.json                 # Config MCP project-scoped pt Claude Code (Tema 5)
 ├── alembic/                  # Migrații DB (004 = chat_messages)
 ├── data/
 │   ├── documents/            # DOCX-uri reale (prefix pentru prompt caching)
@@ -199,6 +251,8 @@ python scripts/compare_intent.py
     ├── orchestrator.py       # Orchestrator + chat(session_id)
     ├── nl2sql_agent.py       # NL2SQL worker
     ├── analyst_agent.py      # Analyst + chat(session_id)
+    ├── guardrails.py         # Input validation + anti prompt-injection (Tema 5)
+    ├── mcp_server.py         # Server MCP: data_analyst + orchestrator (Tema 5)
     └── main.py               # test_memory(), test_router()
 ```
 
